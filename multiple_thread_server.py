@@ -79,15 +79,7 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
 
 
 class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
-    def __exit__(self, exc_type, exc_value, traceback):
-        if exc_type is not None:
-            print exc_type, exc_value, traceback
-            # return False # uncomment to pass exception through
-
-        return self
-
-    def __enter__(self):
-        print "__enter__"
+    pass
 
 
 def main():

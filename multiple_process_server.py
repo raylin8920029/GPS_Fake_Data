@@ -1,9 +1,13 @@
 import argparse
 import SocketServer
+import socket
+import Queue
 import time
-import sys
 import math
 import gps_data_template
+import multiprocessing
+from multiprocessing.reduction import reduce_handle
+from multiprocessing.reduction import rebuild_handle
 from datetime import datetime
 
 
@@ -18,9 +22,13 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
             self.end_of_line = len(lines) - 1
         except IOError:
             print 'cannot open', g_args.file_name
+            raise
+
+        h = reduce_handle(self.request.fileno())
+        socket_queue.put(h)
 
         repeat = g_args.repeat
-        if (repeat <= -1):
+        if repeat <= -1:
             while True:
                 self.send_message(lines, g_args.interval)
                 self.line_index += 1
@@ -78,6 +86,40 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         return gprmc_dms_format
 
 
+class MultiprocessWorker(multiprocessing.Process):
+    def __init__(self, sq):
+
+        self.SLEEP_INTERVAL = 1
+
+        # base class initialization
+        multiprocessing.Process.__init__(self)
+
+        # job management stuff
+        self.socketQueue = sq
+        self.kill_received = False
+
+    def run(self):
+        while not self.kill_received:
+            try:
+                #If you used pipe, then recieve as below
+                #h=pipe.recv()
+                #else dequeue
+
+                h = self.socketQueue.get_nowait()
+                fd=rebuild_handle(h)
+                client_socket=socket.fromfd(fd,socket.AF_INET,socket.SOCK_STREAM)
+                #client_socket.send("hellofromtheworkerprocess\r\n")
+                received = client_socket.recv(1024)
+                print "Recieved on client: ",received
+                client_socket.close()
+
+            except Queue.Empty:
+                pass
+
+            #Dummy timer
+            time.sleep(self.SLEEP_INTERVAL)
+
+
 def main():
     parser = argparse.ArgumentParser(description='Send message to client')
     parser.add_argument('srv_port', help='port of server')
@@ -89,13 +131,25 @@ def main():
 
     global g_args
     g_args = parser.parse_args()
+
+    # Create the server, binding to localhost
+    server = SocketServer.TCPServer(('0.0.0.0', int(g_args.srv_port)), MyTCPHandler)
+    global socket_queue
+    socket_queue = multiprocessing.Queue()
+    worker = []
+
+    for i in range(2):
+        worker.append(MultiprocessWorker(socket_queue))
+        worker[i].start()
+
     try:
-        # Create the server, binding to localhost
-        server = SocketServer.TCPServer(('0.0.0.0', int(g_args.srv_port)), MyTCPHandler)
         server.serve_forever()
     except KeyboardInterrupt:
         server.shutdown()
         server.server_close()
+
+    for i in range(2):
+        worker[i].join()
 
 
 if __name__ == "__main__":
