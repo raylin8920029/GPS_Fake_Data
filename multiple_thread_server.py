@@ -1,9 +1,9 @@
 import argparse
 import SocketServer
 import time
-import sys
 import math
 import gps_data_template
+import threading
 from datetime import datetime
 
 
@@ -50,35 +50,44 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
             gprmc_longitude *= -1
 
         gprmc = gps_data_template.get_gps_data("GPRMC", Time=gprmc_time, Latitude=gprmc_latitude,
-                                           Latitude_Hemisphere=latitude_hemisphere, Longitude=gprmc_longitude,
-                                           Longitude_Hemisphere=longitude_hemisphere, Date=gprmc_date)
+                                               Latitude_Hemisphere=latitude_hemisphere, Longitude=gprmc_longitude,
+                                               Longitude_Hemisphere=longitude_hemisphere, Date=gprmc_date)
 
         msgList = []
         if gprmc.find('\r\n') < 0:
             msgList.append(gprmc + '\r\n')
         return msgList
 
+    def send_message_to_client(self, message):
+        print 'sending "%s"' % message
+        self.request.sendall(message)
 
-def send_message_to_client(self, message):
-    print 'sending "%s"' % message
-    self.request.sendall(message)
+    def send_message(self, lines, sleepIntv):
+        msgList = self.parse_file(lines)
+        for msg in msgList:
+            self.send_message_to_client(msg)
+            time.sleep(sleepIntv)
+
+    def dd_to_gprmc_dms_format(self, degs):
+        neg = degs < 0
+        degs = (-1) ** neg * degs
+        degs, d_int = math.modf(degs)
+        mins, m_int = math.modf(60 * degs)
+        secs = 60 * mins
+        gprmc_dms_format = d_int * 100 + m_int + (secs / 100)
+        return gprmc_dms_format
 
 
-def send_message(self, lines, sleepIntv):
-    msgList = self.parse_file(lines)
-    for msg in msgList:
-        self.send_message_to_client(msg)
-        time.sleep(sleepIntv)
+class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type is not None:
+            print exc_type, exc_value, traceback
+            # return False # uncomment to pass exception through
 
+        return self
 
-def dd_to_gprmc_dms_format(self, degs):
-    neg = degs < 0
-    degs = (-1) ** neg * degs
-    degs, d_int = math.modf(degs)
-    mins, m_int = math.modf(60 * degs)
-    secs = 60 * mins
-    gprmc_dms_format = d_int * 100 + m_int + (secs / 100)
-    return gprmc_dms_format
+    def __enter__(self):
+        print "__enter__"
 
 
 def main():
@@ -92,10 +101,18 @@ def main():
 
     global g_args
     g_args = parser.parse_args()
+
+    HOST, PORT = "0.0.0.0", int(g_args.srv_port)
+
+    server = ThreadedTCPServer((HOST, PORT), MyTCPHandler)
+    server_thread = threading.Thread(target=server.serve_forever)
+    server_thread.daemon = True
+    server_thread.start()
+
     try:
-        # Create the server, binding to localhost
-        server = SocketServer.TCPServer(('0.0.0.0', int(g_args.srv_port)), MyTCPHandler)
-        server.serve_forever()
+        while True:
+            pass
+
     except KeyboardInterrupt:
         server.shutdown()
         server.server_close()
