@@ -1,46 +1,55 @@
 import argparse
 import SocketServer
-import socket
 import Queue
 import time
+import socket
+import multiprocessing
 import math
 import gps_data_template
-import multiprocessing
+from datetime import datetime
 from multiprocessing.reduction import reduce_handle
 from multiprocessing.reduction import rebuild_handle
-from datetime import datetime
 
 
-class MyTCPHandler(SocketServer.BaseRequestHandler):
-    line_index = 0
-    end_of_line = 0
+class MultiprocessWorker(multiprocessing.Process):
+    def __init__(self, sq):
+        self.SLEEP_INTERVAL = 1
+        multiprocessing.Process.__init__(self)
+        self.socket_queue = sq
+        self.kill_received = False
+        self.client_socket = None
+        self.line_index = 0
+        self.end_of_line = 0
 
-    def handle(self):
-        try:
-            f = open(g_args.file_name)
-            lines = f.readlines()
-            self.end_of_line = len(lines) - 1
-        except IOError:
-            print 'cannot open', g_args.file_name
-            raise
+    def run(self):
+        while not self.kill_received:
+            try:
+                h = self.socket_queue.get_nowait()
+                fd = rebuild_handle(h)
+                self.client_socket = socket.fromfd(fd, socket.AF_INET, socket.SOCK_STREAM)
 
-        h = reduce_handle(self.request.fileno())
-        socket_queue.put(h)
+                f = open(g_args.file_name)
+                lines = f.readlines()
+                self.end_of_line = len(lines) - 1
 
-        repeat = g_args.repeat
-        if repeat <= -1:
-            while True:
-                self.send_message(lines, g_args.interval)
-                self.line_index += 1
-                if self.line_index > self.end_of_line:
-                    self.line_index = 0
-        else:
-            while repeat:
-                self.send_message(lines, g_args.interval)
-                self.line_index += 1
-                if self.line_index > self.end_of_line:
-                    self.line_index = 0
-                repeat = repeat - 1
+                repeat = g_args.repeat
+
+                if repeat <= -1:
+                    while True:
+                        self.send_message(lines, g_args.interval)
+                        self.line_index += 1
+                        if self.line_index > self.end_of_line:
+                            self.line_index = 0
+                else:
+                    while repeat:
+                        self.send_message(lines, g_args.interval)
+                        self.line_index += 1
+                        if self.line_index > self.end_of_line:
+                            self.line_index = 0
+                        repeat = repeat - 1
+
+            except (Queue.Empty, KeyboardInterrupt):
+                self.client_socket.close()
 
     def parse_file(self, lines):
         gprmc_time = datetime.utcnow().strftime("%H%M%S")
@@ -58,8 +67,8 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
             gprmc_longitude *= -1
 
         gprmc = gps_data_template.get_gps_data("GPRMC", Time=gprmc_time, Latitude=gprmc_latitude,
-                                           Latitude_Hemisphere=latitude_hemisphere, Longitude=gprmc_longitude,
-                                           Longitude_Hemisphere=longitude_hemisphere, Date=gprmc_date)
+                                               Latitude_Hemisphere=latitude_hemisphere, Longitude=gprmc_longitude,
+                                               Longitude_Hemisphere=longitude_hemisphere, Date=gprmc_date)
 
         msgList = []
         if gprmc.find('\r\n') < 0:
@@ -68,7 +77,7 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
 
     def send_message_to_client(self, message):
         print 'sending "%s"' % message
-        self.request.sendall(message)
+        self.client_socket.send(message)
 
     def send_message(self, lines, sleepIntv):
         msgList = self.parse_file(lines)
@@ -86,41 +95,12 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         return gprmc_dms_format
 
 
-class MultiprocessWorker(multiprocessing.Process):
-    def __init__(self, sq):
+class MyTCPHandler(SocketServer.BaseRequestHandler):
+    def handle(self):
+        h = reduce_handle(self.request.fileno())
+        socket_queue.put(h)
 
-        self.SLEEP_INTERVAL = 1
-
-        # base class initialization
-        multiprocessing.Process.__init__(self)
-
-        # job management stuff
-        self.socketQueue = sq
-        self.kill_received = False
-
-    def run(self):
-        while not self.kill_received:
-            try:
-                #If you used pipe, then recieve as below
-                #h=pipe.recv()
-                #else dequeue
-
-                h = self.socketQueue.get_nowait()
-                fd=rebuild_handle(h)
-                client_socket=socket.fromfd(fd,socket.AF_INET,socket.SOCK_STREAM)
-                #client_socket.send("hellofromtheworkerprocess\r\n")
-                received = client_socket.recv(1024)
-                print "Recieved on client: ",received
-                client_socket.close()
-
-            except Queue.Empty:
-                pass
-
-            #Dummy timer
-            time.sleep(self.SLEEP_INTERVAL)
-
-
-def main():
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Send message to client')
     parser.add_argument('srv_port', help='port of server')
     parser.add_argument('file_name', help='File name of the message')
@@ -129,28 +109,12 @@ def main():
     parser.add_argument('-i', "--interval", default=3, type=int,
                         help='Sets the interval between sending message, in seconds')
 
-    global g_args
     g_args = parser.parse_args()
 
-    # Create the server, binding to localhost
-    server = SocketServer.TCPServer(('0.0.0.0', int(g_args.srv_port)), MyTCPHandler)
-    global socket_queue
+    HOST, PORT = "0.0.0.0", int(g_args.srv_port)
+    server = SocketServer.TCPServer((HOST, PORT), MyTCPHandler)
     socket_queue = multiprocessing.Queue()
-    worker = []
 
-    for i in range(2):
-        worker.append(MultiprocessWorker(socket_queue))
-        worker[i].start()
-
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        server.shutdown()
-        server.server_close()
-
-    for i in range(2):
-        worker[i].join()
-
-
-if __name__ == "__main__":
-    main()
+    for i in range(5):
+        worker = MultiprocessWorker(socket_queue)
+        worker.start()
