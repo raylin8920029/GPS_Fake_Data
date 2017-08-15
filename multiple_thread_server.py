@@ -72,10 +72,6 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         return gprmc_dms_format
 
 
-class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
-    pass
-
-
 def main():
     parser = argparse.ArgumentParser(description='Send message to client')
     parser.add_argument('srv_port', help='port of server')
