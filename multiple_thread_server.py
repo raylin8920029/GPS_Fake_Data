@@ -43,19 +43,13 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         latitude_hemisphere = "S" if coordinate_latitude < 0 else "N"
         longitude_hemisphere = "W" if coordinate_longitude < 0 else "E"
         gprmc_latitude = self.dd_to_gprmc_dms_format(coordinate_latitude)
-        if coordinate_latitude < 0:
-            gprmc_latitude *= -1
         gprmc_longitude = self.dd_to_gprmc_dms_format(coordinate_longitude)
-        if coordinate_longitude < 0:
-            gprmc_longitude *= -1
 
-        gprmc = gps_data_template.get_gps_data("GPRMC", Time=gprmc_time, Latitude=gprmc_latitude,
-                                               Latitude_Hemisphere=latitude_hemisphere, Longitude=gprmc_longitude,
-                                               Longitude_Hemisphere=longitude_hemisphere, Date=gprmc_date)
+        gprmc = gps_data_template.get_gps_data("GPRMC", Time=gprmc_time, Latitude=gprmc_latitude, Latitude_Hemisphere=latitude_hemisphere, Longitude=gprmc_longitude, Longitude_Hemisphere=longitude_hemisphere, Date=gprmc_date)
 
         msgList = []
-        if gprmc.find('\r\n') < 0:
-            msgList.append(gprmc + '\r\n')
+        if gprmc.find('\r\n') < 0 :
+            msgList.append(gprmc + '\r\n');
         return msgList
 
     def send_message_to_client(self, message):
@@ -96,10 +90,8 @@ def main():
 
     HOST, PORT = "0.0.0.0", int(g_args.srv_port)
 
-    server = ThreadedTCPServer((HOST, PORT), MyTCPHandler)
-    server_thread = threading.Thread(target=server.serve_forever)
-    server_thread.daemon = True
-    server_thread.start()
+    server = SocketServer.ThreadingTCPServer(("0.0.0.0", int(g_args.srv_port)), MyTCPHandler)
+    server.serve_forever()
 
     try:
         while True:
