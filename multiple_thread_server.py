@@ -74,7 +74,7 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description='Send message to client')
-    parser.add_argument('srv_port', help='port of server')
+    parser.add_argument('srv_port', help='Port of server')
     parser.add_argument('file_name', help='File name of the message')
     parser.add_argument('-r', "--repeat", default=-1, type=int,
                         help='Specify how many times you want to send the message, -1 means infinite')
