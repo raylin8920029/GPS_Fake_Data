@@ -2,7 +2,7 @@ import argparse
 import time
 import math
 import threading
-import SocketServer
+import socketserver
 import gps_data_template
 from datetime import datetime
 
@@ -12,7 +12,7 @@ gps_status = 'A'
 gps_speed = 30
 
 
-class MyTCPHandler(SocketServer.BaseRequestHandler):
+class MyTCPHandler(socketserver.BaseRequestHandler):
     line_index = 0
     end_of_line = 0
 
@@ -137,13 +137,13 @@ def main():
     threading.Thread(target=key_control, args=(), name='key_control').start()
 
     try:
-        SocketServer.ThreadingTCPServer.allow_reuse_address = True
-        SocketServer.ThreadingTCPServer.daemon_threads = True
+        socketserver.ThreadingTCPServer.allow_reuse_address = True
+        socketserver.ThreadingTCPServer.daemon_threads = True
         # Create gps server, binding to localhost
-        server = SocketServer.ThreadingTCPServer(("0.0.0.0", int(g_args.srv_port)), MyTCPHandler)
+        server = socketserver.ThreadingTCPServer(("0.0.0.0", int(g_args.srv_port)), MyTCPHandler)
         server.serve_forever()
     except KeyboardInterrupt:
-        if type(server) is SocketServer:
+        if type(server) is socketserver:
             server.shutdown()
             server.server_close()
 
